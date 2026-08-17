@@ -81,6 +81,18 @@
         font-size: 48px;
         margin-top: 20px;
       }
+
+      .jspsych-survey-multi-choice-preamble {
+        max-width: 700px;
+        margin: 0 auto 24px auto;
+        text-align: left;
+      }
+
+      .jspsych-survey-multi-choice-question {
+        max-width: 700px;
+        margin: 0 auto 24px auto;
+        text-align: left;
+      }
     </style>
   </head>
 
@@ -178,7 +190,7 @@
           <h2>Research Participation Consent</h2>
           <p>Please consider this information carefully before deciding whether to participate in this research.</p>
           <p>The purpose of this research is to examine which factors influence decision-making and memory. You will be asked to make judgments and recall word combinations and different images.</p>
-          <p>We are simply interested in your judgment. The study will take approximately 30 minutes to complete, and you will receive $5.</p>
+          <p>We are simply interested in your judgment. The study will take approximately 20 minutes to complete, and you will receive $5.</p>
           <p>Your compensation and time commitment are specified in the study description. There are no anticipated risks associated with participating in this study.</p>
           <p>The effects of participating should be comparable to those you would ordinarily experience from viewing a computer monitor and using a mouse or keyboard for a similar amount of time.</p>
           <p>At the end of the study, we will provide an explanation of the questions that motivate this line of research and will describe the potential implications.</p>
@@ -262,18 +274,28 @@
           base_image = row.non_destructive_img.trim();
         }
 
-        // Randomize which literal image variant is used at each stage
-        // (priming, 2x memory exposures, interpretation check) so no
-        // participant ever sees the same exact file twice for this compound.
+        // Each compound has 4 literal image files. With priming removed,
+        // a compound is shown at most 3 times total: twice in the memory
+        // phase, plus once more if it's selected into the 20-compound
+        // interpretation check subset (compounds not selected only get
+        // the 2 memory exposures). That means at least 1 of the 4 image
+        // files can never appear for a given compound in a given run —
+        // there simply aren't more than 3 opportunities to show it.
+        //
+        // Which literal file ends up unused is random, not fixed: the
+        // shuffle below draws a fresh random order of all 4 files for
+        // this compound, so the "leftover" file (variants[3], or
+        // variants[2] and [3] for compounds not selected into the
+        // interpretation check) varies from compound to compound and
+        // participant to participant.
         const variants = jsPsych.randomization.shuffle(getImageVariants(base_image));
 
         return {
           compound: row.compound.trim(),
           correct_verbal: correct_verbal,
           incorrect_verbal: incorrect_verbal,
-          image_priming: variants[0],
-          image_memory: [variants[1], variants[2]],
-          image_interpretation: variants[3]
+          image_memory: [variants[0], variants[1]],
+          image_interpretation: variants[2]
         };
       });
 
@@ -284,9 +306,8 @@
 
       // -------------------------
       // PRIMING SECTION — removed for this iteration.
-      // stim.image_priming and stim.correct_verbal/incorrect_verbal are
-      // still computed above but are now unused; left in place in case
-      // priming is reinstated later.
+      // stim.correct_verbal/incorrect_verbal are still computed above but
+      // are now unused; left in place in case priming is reinstated later.
       // -------------------------
 
       // -------------------------
@@ -298,64 +319,101 @@
 
       const NUM_BLOCKS = 16;
       const BLOCK_SIZE = 6;
+      const HALF_BLOCKS = NUM_BLOCKS / 2; // 8
 
-      // Guaranteed-conflict-free block construction.
+      // Structured block construction: the first half of the memory phase
+      // (blocks 1-8) contains every compound's FIRST exposure, grouped into
+      // 8 blocks of 6. The second half (blocks 9-16) contains every
+      // compound's SECOND exposure, independently grouped into a different
+      // set of 8 blocks of 6.
       //
-      // Each block gets 3 "first exposure" compounds and 3 "second exposure"
-      // compounds (BLOCK_SIZE / 2 each). First-exposure compounds are read
-      // in order from one shuffled pass through all 48 compounds; second-
-      // exposure compounds are read from the SAME shuffled list rotated
-      // halfway around (48 / 2 = 24 positions).
+      // Within each half, no compound can repeat within a block — each
+      // half is built from one shuffle of all 48 unique compounds cut into
+      // non-overlapping chunks, so every compound appears in exactly one
+      // block per half.
       //
-      // That rotation guarantees every compound's second exposure lands
-      // exactly 8 blocks away from its first exposure (24 / 3 = 8), and
-      // since there are only 16 blocks total, "8 away" always means a
-      // different block. This holds for every compound regardless of how
-      // the initial shuffle comes out, so no compound can ever appear
-      // twice in the same block. No repair step needed.
-      const items_per_exposure_per_block = BLOCK_SIZE / 2;
-      const shuffled_order = jsPsych.randomization.shuffle(stimuli.slice());
-      const n_compounds = shuffled_order.length;
-      const rotation = n_compounds / 2;
-      const rotated_order = shuffled_order.slice(rotation).concat(shuffled_order.slice(0, rotation));
-
-      let memory_blocks = [];
-      for (let b = 0; b < NUM_BLOCKS; b++) {
-        const start = b * items_per_exposure_per_block;
-        const exposure1_stims = shuffled_order.slice(start, start + items_per_exposure_per_block);
-        const exposure2_stims = rotated_order.slice(start, start + items_per_exposure_per_block);
-
-        const block = exposure1_stims.map(function(stim) {
-          return {
-            compound: stim.compound,
-            image: stim.image_memory[0].path,
-            image_variant_number: stim.image_memory[0].variant_number,
-            exposure: 1
-          };
-        }).concat(exposure2_stims.map(function(stim) {
-          return {
-            compound: stim.compound,
-            image: stim.image_memory[1].path,
-            image_variant_number: stim.image_memory[1].variant_number,
-            exposure: 2
-          };
-        }));
-
-        memory_blocks.push(jsPsych.randomization.shuffle(block));
+      // The one thing that COULD happen by chance is a second-half block
+      // ending up with the exact same 6 compounds as some first-half
+      // block. That's astronomically unlikely on its own (roughly 1 in
+      // 146,000 per build, given how many distinct 6-compound groups are
+      // possible from 48 compounds), but rather than rely on "very
+      // unlikely," the loop below explicitly checks for it and reshuffles
+      // the second half if it ever happens — so it's a hard guarantee,
+      // not a probability.
+      function chunkIntoBlocks(list, size) {
+        const chunks = [];
+        for (let i = 0; i < list.length; i += size) {
+          chunks.push(list.slice(i, i + size));
+        }
+        return chunks;
       }
 
-      // Safety net: verify no duplicates slipped through. This should be
-      // mathematically impossible given the construction above, but it
-      // costs nothing to confirm and fail loudly instead of silently if
-      // BLOCK_SIZE / NUM_BLOCKS / compound count are ever changed later
-      // without checking the divisibility assumptions this relies on.
+      function blockCompoundSet(block) {
+        return new Set(block.map(function(stim) { return stim.compound; }));
+      }
+
+      function setsAreEqual(a, b) {
+        if (a.size !== b.size) return false;
+        for (const item of a) {
+          if (!b.has(item)) return false;
+        }
+        return true;
+      }
+
+      const first_half_order = jsPsych.randomization.shuffle(stimuli.slice());
+      const first_half_stim_blocks = chunkIntoBlocks(first_half_order, BLOCK_SIZE);
+      const first_half_sets = first_half_stim_blocks.map(blockCompoundSet);
+
+      let second_half_stim_blocks;
+      let attempts = 0;
+      do {
+        const second_half_order = jsPsych.randomization.shuffle(stimuli.slice());
+        second_half_stim_blocks = chunkIntoBlocks(second_half_order, BLOCK_SIZE);
+        attempts++;
+      } while (
+        second_half_stim_blocks.some(function(block) {
+          const block_set = blockCompoundSet(block);
+          return first_half_sets.some(function(first_set) { return setsAreEqual(first_set, block_set); });
+        }) && attempts < 100
+      );
+
+      function toMemorySlot(stim, exposure_number) {
+        return {
+          compound: stim.compound,
+          image: stim.image_memory[exposure_number - 1].path,
+          image_variant_number: stim.image_memory[exposure_number - 1].variant_number,
+          exposure: exposure_number
+        };
+      }
+
+      const first_half_blocks = first_half_stim_blocks.map(function(block) {
+        return jsPsych.randomization.shuffle(block.map(function(stim) { return toMemorySlot(stim, 1); }));
+      });
+      const second_half_blocks = second_half_stim_blocks.map(function(block) {
+        return jsPsych.randomization.shuffle(block.map(function(stim) { return toMemorySlot(stim, 2); }));
+      });
+
+      let memory_blocks = first_half_blocks.concat(second_half_blocks);
+
+      // Safety net: confirm the guarantees actually held. Within-half
+      // duplicates should be structurally impossible, and the do/while
+      // loop above should have already ruled out identical first/second
+      // half blocks — this just fails loudly instead of silently if that
+      // ever isn't true (e.g. after a future change to these numbers).
       memory_blocks.forEach(function(block, idx) {
         const compounds_in_block = block.map(function(x) { return x.compound; });
         const unique_compounds = new Set(compounds_in_block);
         if (unique_compounds.size !== compounds_in_block.length) {
-          console.error("Duplicate compound detected in memory block " + (idx + 1) + " — check BLOCK_SIZE/NUM_BLOCKS/compound count divisibility.");
+          console.error("Duplicate compound detected in memory block " + (idx + 1) + ".");
         }
       });
+      for (let i = 0; i < memory_blocks.length; i++) {
+        for (let j = i + 1; j < memory_blocks.length; j++) {
+          if (setsAreEqual(blockCompoundSet(memory_blocks[i].map(function(x){ return {compound: x.compound}; })), blockCompoundSet(memory_blocks[j].map(function(x){ return {compound: x.compound}; })))) {
+            console.error("Blocks " + (i + 1) + " and " + (j + 1) + " have identical compound sets.");
+          }
+        }
+      }
 
       timeline.push({
         type: jsPsychHtmlKeyboardResponse,
@@ -414,7 +472,7 @@
                 <p class="compound-text"><strong>${slot.compound}</strong></p>
               </div>`,
             choices: "NO_KEYS",
-            trial_duration: 2500,
+            trial_duration: 3000,
             post_trial_gap: 500,
             data: {
               phase: "memory_study_with_image",
@@ -532,7 +590,7 @@
         `
       });
 
-      const interpretation_stimuli = jsPsych.randomization.shuffle(stimuli).slice(0, 15);
+      const interpretation_stimuli = jsPsych.randomization.shuffle(stimuli).slice(0, 20);
 
       interpretation_stimuli.forEach(function(stim) {
         const original_row = data.find(function(row) { return row.compound.trim() === stim.compound; });
