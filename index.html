@@ -1,0 +1,793 @@
+<!DOCTYPE html>
+<html>
+  <head>
+    <title>Conceptual Combination</title>
+
+    <script src="https://unpkg.com/jspsych@8.2.3"></script>
+    <script src="https://unpkg.com/@jspsych/plugin-html-keyboard-response@2.1.0"></script>
+    <script src="https://unpkg.com/@jspsych/plugin-html-button-response@2.1.0"></script>
+    <script src="https://unpkg.com/@jspsych/plugin-survey-text@2.1.0"></script>
+    <script src="https://unpkg.com/@jspsych/plugin-survey-multi-choice@2.1.0"></script>
+    <script src="https://unpkg.com/@jspsych/plugin-survey-html-form@2.1.0"></script>
+    <script src="https://unpkg.com/@jspsych/plugin-call-function@2.1.0"></script>
+    <script src="https://pavlovia.org/lib/jspsych-7-pavlovia-2022.1.1.js"></script>
+    <script src="https://unpkg.com/d3@7"></script>
+
+    <link href="https://unpkg.com/jspsych@8.2.3/css/jspsych.css" rel="stylesheet" type="text/css" />
+
+    <style>
+      body, .jspsych-content, .jspsych-display-element {
+        cursor: default;
+        user-select: none;
+      }
+
+      input, textarea {
+        cursor: text;
+        user-select: text;
+      }
+
+      .form-screen {
+        max-width: 700px;
+        margin: 0 auto;
+        text-align: left;
+        font-size: 18px;
+        line-height: 1.5;
+      }
+
+      .form-screen h2 {
+        text-align: center;
+      }
+
+      .agree-row {
+        margin-top: 24px;
+        padding: 16px;
+        border: 1px solid #ccc;
+        border-radius: 6px;
+        display: flex;
+        align-items: flex-start;
+        gap: 10px;
+      }
+
+      .agree-row input[type="checkbox"] {
+        margin-top: 4px;
+        width: 20px;
+        height: 20px;
+        cursor: pointer;
+      }
+
+      .compound-display {
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        justify-content: flex-end;
+      }
+
+      .compound-image-slot {
+        width: 450px;
+        height: 350px;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        margin: 0 auto;
+      }
+
+      .compound-image-slot img {
+        max-width: 100%;
+        max-height: 100%;
+        object-fit: contain;
+      }
+
+      .compound-text {
+        font-size: 48px;
+        margin-top: 20px;
+      }
+    </style>
+  </head>
+
+  <body></body>
+
+  <script>
+    const jsPsych = initJsPsych();
+
+    let timeline = [];
+
+    // -------------------------
+    // PROLIFIC / STUDY METADATA
+    // -------------------------
+
+    function getURLParameter(name) {
+      const params = new URLSearchParams(window.location.search);
+      return params.get(name);
+    }
+
+    const prolific_pid = getURLParameter("PROLIFIC_PID") || "TESTING";
+    const study_id = getURLParameter("STUDY_ID") || "TESTING";
+    const session_id = getURLParameter("SESSION_ID") || "TESTING";
+
+    // Pavlovia's init/finish trials only work once this file is actually
+    // running from pavlovia.org (they require an active Pavlovia session).
+    // This flag lets local Live Server testing skip them safely instead
+    // of erroring out.
+    const running_on_pavlovia = window.location.hostname.includes("pavlovia.org");
+
+    // Open the connection with Pavlovia (only when actually running there)
+    if (running_on_pavlovia) {
+      timeline.push({
+        type: jsPsychPavlovia,
+        command: "init"
+      });
+    }
+
+    // -------------------------
+    // GROUP ASSIGNMENT
+    // -------------------------
+
+    const groups = ["control", "destructive", "non_destructive"];
+    const group = jsPsych.randomization.sampleWithoutReplacement(groups, 1)[0];
+
+    console.log("Assigned group:", group);
+
+    jsPsych.data.addProperties({
+      condition: group,
+      prolific_pid: prolific_pid,
+      study_id: study_id,
+      session_id: session_id
+    });
+
+    // -------------------------
+    // IMAGE VARIANT HELPER
+    // Each condition image has 4 literal file variants
+    // (e.g. balloon_seal_D.png, _D2.png, _D3.png, _D4.png).
+    // This returns all 4, tagged with their variant number,
+    // so we can randomly assign which one shows at each stage
+    // without ever repeating a literal file for one participant.
+    // -------------------------
+
+    function getImageVariants(basePath) {
+      const dotIndex = basePath.lastIndexOf(".");
+      const prefix = basePath.slice(0, dotIndex);
+      const ext = basePath.slice(dotIndex);
+      return [
+        { path: basePath, variant_number: 1 },
+        { path: prefix + "2" + ext, variant_number: 2 },
+        { path: prefix + "3" + ext, variant_number: 3 },
+        { path: prefix + "4" + ext, variant_number: 4 }
+      ];
+    }
+
+    // -------------------------
+    // WELCOME
+    // -------------------------
+
+    timeline.push({
+      type: jsPsychHtmlKeyboardResponse,
+      stimulus: `
+        <p>Welcome to the experiment.</p>
+        <p>Press any key to begin.</p>
+      `
+    });
+
+    // -------------------------
+    // CONSENT FORM (checkbox-gated)
+    // -------------------------
+
+    timeline.push({
+      type: jsPsychHtmlButtonResponse,
+      stimulus: `
+        <div class="form-screen">
+          <h2>Research Participation Consent</h2>
+          <p>Please consider this information carefully before deciding whether to participate in this research.</p>
+          <p>The purpose of this research is to examine which factors influence decision-making and memory. You will be asked to make judgments and recall word combinations and different images.</p>
+          <p>We are simply interested in your judgment. The study will take approximately 30 minutes to complete, and you will receive $5.</p>
+          <p>Your compensation and time commitment are specified in the study description. There are no anticipated risks associated with participating in this study.</p>
+          <p>The effects of participating should be comparable to those you would ordinarily experience from viewing a computer monitor and using a mouse or keyboard for a similar amount of time.</p>
+          <p>At the end of the study, we will provide an explanation of the questions that motivate this line of research and will describe the potential implications.</p>
+          <p>Your participation in this study is completely voluntary, and you may refuse to participate, or you may choose to withdraw at any time without penalty or loss of benefits to you which are otherwise entitled.</p>
+          <p>Your participation in this study will remain confidential. No personally identifiable information will be associated with your data.</p>
+          <p>If you have questions or concerns about your participation or payment, or want to request a summary of research findings, please contact Dr. Steven Frankland at Steven.M.Frankland@dartmouth.edu.</p>
+          <p>Please save a copy of this form for your records.</p>
+          <div class="agree-row">
+            <input type="checkbox" id="consent-checkbox">
+            <label for="consent-checkbox"><strong>Agreement:</strong> The nature and purpose of this research have been sufficiently explained, and I agree to participate in this study.</label>
+          </div>
+        </div>
+      `,
+      choices: ["Continue"],
+      data: { phase: "consent_form" },
+      on_load: function() {
+        const checkbox = document.querySelector("#consent-checkbox");
+        const button = document.querySelector(".jspsych-btn");
+        button.disabled = true;
+        button.style.opacity = 0.5;
+        checkbox.addEventListener("change", function() {
+          button.disabled = !checkbox.checked;
+          button.style.opacity = checkbox.checked ? 1 : 0.5;
+        });
+      },
+      on_finish: function(data) {
+        data.consent_agreed = true;
+      }
+    });
+
+    // -------------------------
+    // NO AI USAGE FORM
+    // (button click itself serves as the explicit agreement)
+    // -------------------------
+
+    timeline.push({
+      type: jsPsychHtmlButtonResponse,
+      stimulus: `
+        <div class="form-screen">
+          <p>In this experiment, you will be asked to interpret words and images.</p>
+          <p>Please list whatever comes to mind, as it comes to mind, with your unique answers in the box.</p>
+          <p>After entering a response, press Enter.</p>
+          <p>Press any key to begin.</p>
+          <p><strong>Important Notice:</strong></p>
+          <ul>
+            <li>All responses must be your own original thoughts. Do not use AI tools (like ChatGPT or Claude) to generate responses.</li>
+            <li>AI-generated responses will be detected and rejected.</li>
+            <li>Natural responses are more valuable than "perfect" ones.</li>
+          </ul>
+          <p>By clicking 'I Understand and Agree' below, you confirm that:</p>
+          <p>You will provide your own, original responses. You will not use AI tools to generate responses. You understand that AI-generated responses will be rejected.</p>
+        </div>
+      `,
+      choices: ["I Understand and Agree"],
+      data: { phase: "ai_usage_form" },
+      on_finish: function(data) {
+        data.ai_usage_agreement = true;
+      }
+    });
+
+    // -------------------------
+    // LOAD STIMULI
+    // -------------------------
+
+    d3.csv("stimuli.csv").then(function(data) {
+
+      let stimuli = data.map(function(row) {
+        let correct_verbal, incorrect_verbal, base_image;
+
+        if (group === "control") {
+          correct_verbal = row.c_control_verbal.trim().replace(/\s+/g, " ");
+          incorrect_verbal = row.i_control_verbal.trim().replace(/\s+/g, " ");
+          base_image = row.control_img.trim();
+        } else if (group === "destructive") {
+          correct_verbal = row.c_destructive_verbal.trim().replace(/\s+/g, " ");
+          incorrect_verbal = row.i_destructive_verbal.trim().replace(/\s+/g, " ");
+          base_image = row.destructive_img.trim();
+        } else {
+          correct_verbal = row.c_non_destructive_verbal.trim().replace(/\s+/g, " ");
+          incorrect_verbal = row.i_non_destructive_verbal.trim().replace(/\s+/g, " ");
+          base_image = row.non_destructive_img.trim();
+        }
+
+        // Randomize which literal image variant is used at each stage
+        // (priming, 2x memory exposures, interpretation check) so no
+        // participant ever sees the same exact file twice for this compound.
+        const variants = jsPsych.randomization.shuffle(getImageVariants(base_image));
+
+        return {
+          compound: row.compound.trim(),
+          correct_verbal: correct_verbal,
+          incorrect_verbal: incorrect_verbal,
+          image_priming: variants[0],
+          image_memory: [variants[1], variants[2]],
+          image_interpretation: variants[3]
+        };
+      });
+
+      // Use the full 48-compound pool for both priming and memory
+      stimuli = jsPsych.randomization.shuffle(stimuli);
+
+      console.log("TOTAL COMPOUNDS:", stimuli.length);
+
+      // -------------------------
+      // PRIMING SECTION — removed for this iteration.
+      // stim.image_priming and stim.correct_verbal/incorrect_verbal are
+      // still computed above but are now unused; left in place in case
+      // priming is reinstated later.
+      // -------------------------
+
+      // -------------------------
+      // MEMORY SECTION
+      // 16 blocks of 6 compounds. Every one of the 48 compounds
+      // is shown exactly twice across the phase, and never twice
+      // within the same block.
+      // -------------------------
+
+      const NUM_BLOCKS = 16;
+      const BLOCK_SIZE = 6;
+
+      // Guaranteed-conflict-free block construction.
+      //
+      // Each block gets 3 "first exposure" compounds and 3 "second exposure"
+      // compounds (BLOCK_SIZE / 2 each). First-exposure compounds are read
+      // in order from one shuffled pass through all 48 compounds; second-
+      // exposure compounds are read from the SAME shuffled list rotated
+      // halfway around (48 / 2 = 24 positions).
+      //
+      // That rotation guarantees every compound's second exposure lands
+      // exactly 8 blocks away from its first exposure (24 / 3 = 8), and
+      // since there are only 16 blocks total, "8 away" always means a
+      // different block. This holds for every compound regardless of how
+      // the initial shuffle comes out, so no compound can ever appear
+      // twice in the same block. No repair step needed.
+      const items_per_exposure_per_block = BLOCK_SIZE / 2;
+      const shuffled_order = jsPsych.randomization.shuffle(stimuli.slice());
+      const n_compounds = shuffled_order.length;
+      const rotation = n_compounds / 2;
+      const rotated_order = shuffled_order.slice(rotation).concat(shuffled_order.slice(0, rotation));
+
+      let memory_blocks = [];
+      for (let b = 0; b < NUM_BLOCKS; b++) {
+        const start = b * items_per_exposure_per_block;
+        const exposure1_stims = shuffled_order.slice(start, start + items_per_exposure_per_block);
+        const exposure2_stims = rotated_order.slice(start, start + items_per_exposure_per_block);
+
+        const block = exposure1_stims.map(function(stim) {
+          return {
+            compound: stim.compound,
+            image: stim.image_memory[0].path,
+            image_variant_number: stim.image_memory[0].variant_number,
+            exposure: 1
+          };
+        }).concat(exposure2_stims.map(function(stim) {
+          return {
+            compound: stim.compound,
+            image: stim.image_memory[1].path,
+            image_variant_number: stim.image_memory[1].variant_number,
+            exposure: 2
+          };
+        }));
+
+        memory_blocks.push(jsPsych.randomization.shuffle(block));
+      }
+
+      // Safety net: verify no duplicates slipped through. This should be
+      // mathematically impossible given the construction above, but it
+      // costs nothing to confirm and fail loudly instead of silently if
+      // BLOCK_SIZE / NUM_BLOCKS / compound count are ever changed later
+      // without checking the divisibility assumptions this relies on.
+      memory_blocks.forEach(function(block, idx) {
+        const compounds_in_block = block.map(function(x) { return x.compound; });
+        const unique_compounds = new Set(compounds_in_block);
+        if (unique_compounds.size !== compounds_in_block.length) {
+          console.error("Duplicate compound detected in memory block " + (idx + 1) + " — check BLOCK_SIZE/NUM_BLOCKS/compound count divisibility.");
+        }
+      });
+
+      timeline.push({
+        type: jsPsychHtmlKeyboardResponse,
+        stimulus: `
+          <p>You will now complete a memory section.</p>
+          <p>You will see compounds one at a time.</p>
+          <p>After each compound, you will complete a short math task.</p>
+          <p>After each set, you will type the compounds you remember from that set.</p>
+          <p>Mentally visualizing the compounds will be an effective memory strategy.</p>
+          <p>Press any key to begin.</p>
+        `
+      });
+
+      memory_blocks.forEach(function(compound_group, block_index) {
+        timeline.push({
+          type: jsPsychHtmlKeyboardResponse,
+          stimulus: `
+            <p style="font-size: 36px;">Trial ${block_index + 1} of ${NUM_BLOCKS}</p>
+            <p>Press any key to begin.</p>
+          `
+        });
+
+        compound_group.forEach(function(slot, item_index) {
+
+          // Trial 1 - word only
+          // Uses the same fixed-size image slot as Trial 2, just left empty,
+          // so the compound text sits in exactly the same spot in both trials
+          // and doesn't visually jump when the image appears.
+          timeline.push({
+            type: jsPsychHtmlKeyboardResponse,
+            stimulus: `
+              <div class="compound-display">
+                <div class="compound-image-slot"></div>
+                <p class="compound-text"><strong>${slot.compound}</strong></p>
+              </div>`,
+            choices: "NO_KEYS",
+            trial_duration: 1750,
+            post_trial_gap: 0,
+            data: {
+              phase: "memory_study",
+              memory_block: block_index + 1,
+              item_in_block: item_index + 1,
+              compound: slot.compound,
+              exposure: slot.exposure
+            }
+          });
+
+          // Trial 2 - word + image
+          timeline.push({
+            type: jsPsychHtmlKeyboardResponse,
+            stimulus: `
+              <div class="compound-display">
+                <div class="compound-image-slot">
+                  <img src="${slot.image}" onerror="console.error('IMAGE FAILED (memory):', this.src)">
+                </div>
+                <p class="compound-text"><strong>${slot.compound}</strong></p>
+              </div>`,
+            choices: "NO_KEYS",
+            trial_duration: 2500,
+            post_trial_gap: 500,
+            data: {
+              phase: "memory_study_with_image",
+              memory_block: block_index + 1,
+              item_in_block: item_index + 1,
+              compound: slot.compound,
+              image: slot.image,
+              image_variant_number: slot.image_variant_number,
+              exposure: slot.exposure
+            }
+          });
+
+          // Math problem — one step: addition, subtraction, or multiplication,
+          // randomly chosen each trial. Multiplication uses a smaller second
+          // number so problems stay quick to solve.
+          const operator_options = ["+", "-", "×"];
+          const operator = operator_options[Math.floor(Math.random() * operator_options.length)];
+          const A = Math.floor(Math.random() * 10) + 1;
+          const B = operator === "×" ? Math.floor(Math.random() * 5) + 1 : Math.floor(Math.random() * 10) + 1;
+
+          let correct_answer;
+          if (operator === "+") {
+            correct_answer = A + B;
+          } else if (operator === "-") {
+            correct_answer = A - B;
+          } else {
+            correct_answer = A * B;
+          }
+
+          timeline.push({
+            type: jsPsychSurveyHtmlForm,
+            html: `
+              <style>
+                .math-container {
+                  height: 180px;
+                  display: flex;
+                  align-items: center;
+                  justify-content: center;
+                  font-size: 48px;
+                  margin-top: 60px;
+                }
+                .math-answer { font-size: 32px; width: 120px; margin-left: 12px; text-align: center; }
+              </style>
+              <div class="math-container">
+                <span>${A} ${operator} ${B} =</span>
+                <input class="math-answer" name="math_answer" type="number" required autofocus>
+              </div>
+            `,
+            button_label: "Continue",
+            data: {
+              phase: "math_problem",
+              memory_block: block_index + 1,
+              item_in_block: item_index + 1,
+              compound: slot.compound,
+              A: A, B: B, operator: operator,
+              correct_answer: correct_answer
+            },
+            on_load: function() {
+              document.querySelector(".math-answer").focus();
+            },
+            on_finish: function(data) {
+              const response_obj = typeof data.response === "string" ? JSON.parse(data.response) : data.response;
+              const participant_answer = Number(response_obj.math_answer);
+              data.participant_answer = participant_answer;
+              data.math_correct = participant_answer === correct_answer;
+            }
+          });
+        });
+
+        timeline.push({
+          type: jsPsychSurveyText,
+          questions: [
+            {
+              prompt: "Type the compounds you remember from the last set:",
+              rows: 8,
+              columns: 70,
+              required: false
+            }
+          ],
+          button_label: "Continue",
+          data: {
+            phase: "memory_recall",
+            memory_block: block_index + 1,
+            correct_compounds: compound_group.map(function(s) { return s.compound; }).join("; "),
+            recall_total_items: compound_group.length
+          },
+          on_finish: function(data) {
+            const response_obj = typeof data.response === "string" ? JSON.parse(data.response) : data.response;
+            const response_text = (response_obj && response_obj.Q0) ? response_obj.Q0 : "";
+            data.recall_response_text = response_text;
+
+            const response_lower = response_text.toLowerCase();
+            let matched = 0;
+            compound_group.forEach(function(s) {
+              if (response_lower.includes(s.compound.toLowerCase())) {
+                matched += 1;
+              }
+            });
+            data.recall_matched_count = matched;
+          }
+        });
+      });
+
+      // -------------------------
+      // IMAGE INTERPRETATION CHECK
+      // 15 randomly selected compounds from the full 48.
+      // -------------------------
+
+      timeline.push({
+        type: jsPsychHtmlKeyboardResponse,
+        stimulus: `
+          <p>You will now see a compound and two images.</p>
+          <p>Choose the image that best matches your interpretation of the compound.</p>
+          <p>Press any key to continue.</p>
+        `
+      });
+
+      const interpretation_stimuli = jsPsych.randomization.shuffle(stimuli).slice(0, 15);
+
+      interpretation_stimuli.forEach(function(stim) {
+        const original_row = data.find(function(row) { return row.compound.trim() === stim.compound; });
+
+        let other_image_options = [];
+        if (group === "control") {
+          other_image_options = [original_row.destructive_img.trim(), original_row.non_destructive_img.trim()];
+        } else if (group === "destructive") {
+          other_image_options = [original_row.control_img.trim(), original_row.non_destructive_img.trim()];
+        } else {
+          other_image_options = [original_row.control_img.trim(), original_row.destructive_img.trim()];
+        }
+
+        const other_image = jsPsych.randomization.sampleWithoutReplacement(other_image_options, 1)[0];
+        const correct_image_for_group = stim.image_interpretation.path;
+
+        const options = jsPsych.randomization.shuffle([
+          { image: correct_image_for_group, type: "same_condition_image" },
+          { image: other_image, type: "other_condition_image" }
+        ]);
+
+        timeline.push({
+          type: jsPsychHtmlButtonResponse,
+          stimulus: `
+            <p style="font-size: 32px;"><strong>${stim.compound}</strong></p>
+            <p>Which image best matches your interpretation?</p>
+          `,
+          choices: [
+            `<img src="${options[0].image}" onerror="console.error('IMAGE FAILED (interpretation):', this.src)" style="max-width: 300px;">`,
+            `<img src="${options[1].image}" onerror="console.error('IMAGE FAILED (interpretation):', this.src)" style="max-width: 300px;">`
+          ],
+          data: {
+            phase: "image_interpretation_check",
+            compound: stim.compound,
+            correct_image_for_group: correct_image_for_group,
+            correct_image_variant_number: stim.image_interpretation.variant_number,
+            other_image: other_image,
+            option_1_image: options[0].image,
+            option_2_image: options[1].image,
+            option_1_type: options[0].type,
+            option_2_type: options[1].type
+          },
+          on_finish: function(data) {
+            data.chosen_type = data.response === 0 ? data.option_1_type : data.option_2_type;
+            data.chose_group_correct_image = data.chosen_type === "same_condition_image";
+          }
+        });
+      });
+
+      // -------------------------
+      // VVIQ (16 items, 4 screens of 4 items each)
+      // -------------------------
+
+      const vviq_scale = [
+        "No image at all (only \"knowing\" that you are thinking of the object)",
+        "Vague, and dim",
+        "Moderately clear and vivid",
+        "Clear and reasonably vivid",
+        "Perfectly clear and as vivid as normal vision"
+      ];
+
+      function buildVviqTrial(preamble_text, item_texts, screen_number) {
+        return {
+          type: jsPsychSurveyMultiChoice,
+          preamble: `<p>${preamble_text}</p>`,
+          questions: item_texts.map(function(item_text, idx) {
+            return {
+              prompt: item_text,
+              name: "vviq_item_" + ((screen_number - 1) * 4 + idx + 1),
+              options: vviq_scale,
+              required: true
+            };
+          }),
+          data: { phase: "vviq", vviq_screen: screen_number },
+          on_finish: function(data) {
+            const response = data.response;
+            let screen_total = 0;
+            Object.keys(response).forEach(function(key) {
+              const score = vviq_scale.indexOf(response[key]) + 1;
+              data[key + "_score"] = score;
+              screen_total += score;
+            });
+            data.vviq_screen_total = screen_total;
+          }
+        };
+      }
+
+      timeline.push({
+        type: jsPsychHtmlKeyboardResponse,
+        stimulus: `
+          <div class="form-screen">
+            <h2>Vividness of Visual Imagery Questionnaire (VVIQ)</h2>
+            <p>For each item on this questionnaire, try to form a visual image, and consider your experience carefully. Please note that there are no right or wrong answers to the questions, and that it is not necessarily desirable to experience imagery or, if you do, to have more vivid imagery.</p>
+            <p>Press any key to begin.</p>
+          </div>
+        `
+      });
+
+      timeline.push(buildVviqTrial(
+        "Think of some relative or friend whom you frequently see (but who is not with you at present), and consider carefully the picture that comes before your mind's eye. Then rate the following items:",
+        [
+          "The exact contour of face, head, shoulders, and body.",
+          "Characteristic poses of head, attitudes of body, etc.",
+          "The precise carriage, length of step, etc., in walking.",
+          "The different colors worn in some familiar clothes."
+        ],
+        1
+      ));
+
+      timeline.push(buildVviqTrial(
+        "Visualize a rising sun. Consider carefully the picture that comes before your mind's eye. Then rate the following items.",
+        [
+          "The sun is rising above the horizon into a hazy sky.",
+          "The sky clears and surrounds the sun with blueness.",
+          "Clouds. A storm blows up, with flashes of lightning.",
+          "A rainbow appears."
+        ],
+        2
+      ));
+
+      timeline.push(buildVviqTrial(
+        "Think of the front of a shop to which you often go. Consider the picture that comes before your mind's eye. Then rate the following items.",
+        [
+          "The overall appearance of the shop from the opposite side of the road.",
+          "A window display including colors, shapes, and details of individual items for sale.",
+          "You are near the entrance. The color, shape, and details of the door.",
+          "You enter the shop and go to the counter. The counter assistant serves you. Money changes hands."
+        ],
+        3
+      ));
+
+      timeline.push(buildVviqTrial(
+        "Finally, think of a country scene which involves trees, mountains and a lake. Consider the picture that comes before your mind's eye. Then rate the following items.",
+        [
+          "The contours of the landscape.",
+          "The color and shape of the trees.",
+          "The color and shape of the lake.",
+          "A strong wind blows on the trees and on the lake, causing waves."
+        ],
+        4
+      ));
+
+      // -------------------------
+      // SUMMARY SCORES
+      // Logged as an additional row alongside (not instead of) raw trial data.
+      // -------------------------
+
+      timeline.push({
+        type: jsPsychCallFunction,
+        func: function() {},
+        data: { phase: "summary_scores" },
+        on_finish: function(data) {
+          const math_trials = jsPsych.data.get().filter({ phase: "math_problem" });
+          const math_correct_count = math_trials.filter({ math_correct: true }).count();
+          const math_total = math_trials.count();
+
+          const recall_trials = jsPsych.data.get().filter({ phase: "memory_recall" });
+          let recall_matched = 0;
+          let recall_total = 0;
+          recall_trials.values().forEach(function(t) {
+            recall_matched += t.recall_matched_count || 0;
+            recall_total += t.recall_total_items || 0;
+          });
+
+          const interp_trials = jsPsych.data.get().filter({ phase: "image_interpretation_check" });
+          const interp_correct = interp_trials.filter({ chose_group_correct_image: true }).count();
+          const interp_total = interp_trials.count();
+
+          const vviq_trials = jsPsych.data.get().filter({ phase: "vviq" });
+          let vviq_total = 0;
+          vviq_trials.values().forEach(function(t) {
+            vviq_total += t.vviq_screen_total || 0;
+          });
+
+          data.math_correct_count = math_correct_count;
+          data.math_total = math_total;
+          data.math_accuracy = math_total > 0 ? math_correct_count / math_total : null;
+
+          data.recall_matched_count = recall_matched;
+          data.recall_total_items = recall_total;
+          data.recall_accuracy = recall_total > 0 ? recall_matched / recall_total : null;
+
+          data.interpretation_correct_count = interp_correct;
+          data.interpretation_total = interp_total;
+          data.interpretation_accuracy = interp_total > 0 ? interp_correct / interp_total : null;
+
+          data.vviq_total_score = vviq_total;
+        }
+      });
+
+      // -------------------------
+      // DEBRIEFING
+      // -------------------------
+
+      timeline.push({
+        type: jsPsychHtmlKeyboardResponse,
+        stimulus: `
+          <div class="form-screen">
+            <h2>Study Debriefing</h2>
+            <p>Decision-making and conceptual understanding are important aspects of public and private life. Using surveys like the one you just completed, we are examining the factors that go into making linguistic decisions.</p>
+            <p><strong>How is this being tested?</strong></p>
+            <p>We have asked you to respond to word compounds and image representations that differ on several important factors. By isolating different variables that are involved in conceptual thought, we can better understand how we arrive at complex understanding and how this may impact memory abilities.</p>
+            <p><strong>Main questions and hypotheses:</strong></p>
+            <p>A fundamental goal of our research is to understand the cognitive and emotional factors that influence social judgment and decision-making. We are studying these factors by presenting people with hypothetical questions that vary in specific ways and seeing which factors make a difference. Some people filled out the same survey that you just filled out. Others got slightly different surveys.</p>
+            <p><strong>Why is this important to study?</strong></p>
+            <p>By comparing answers on these important factors, we learn about what factors compound interpretations and memory. This has crucial implications for the way in which we compress and store information.</p>
+            <p><strong>How to learn more:</strong></p>
+            <p>If you are interested in learning more, you may want to consult the following articles:</p>
+            <p>Ciapparelli, M. (2024). <em>Multiple routes to conceptual combination: A distributional modeling approach</em> [Doctoral dissertation, Università degli Studi di Milano-Bicocca].</p>
+            <p>Gagné, C. L. (2001). Relation and lexical priming during the interpretation of noun–noun combinations. <em>Journal of Experimental Psychology: Learning, Memory, and Cognition, 27</em>(1), 236–254. https://doi.org/10.1037/0278-7393.27.1.236</p>
+            <p>Gagné, C. L., Spalding, T. L., Figueredo, L., &amp; Mullally, A. C. (2009). Does <em>snow man</em> prime <em>plastic snow</em>? The effect of constituent position in using relational information during the interpretation of modifier-noun phrases. <em>The Mental Lexicon, 4</em>(1), 41–76. https://doi.org/10.1075/ml.4.1.03gag</p>
+            <p><strong>How to contact the researcher:</strong></p>
+            <p>If you have questions or concerns about your participation or payment, or want to request a summary of research findings, please contact the Primary Investigator: Dr. Steven Frankland, Steven.M.Frankland@dartmouth.edu.</p>
+            <p>Press any key to finish and submit your data.</p>
+          </div>
+        `
+      });
+
+      // -------------------------
+      // SAVE DATA (Pavlovia native) + REDIRECT TO PROLIFIC
+      // -------------------------
+
+      const prolific_completion_code = "REPLACE_WITH_PROLIFIC_COMPLETION_CODE";
+
+      function goToProlificOrThankYou() {
+        if (prolific_pid === "TESTING") {
+          document.body.innerHTML = "<p style='text-align:center; margin-top:100px; font-size:20px;'>Thank you! (Local test run — no Prolific redirect.)</p>";
+        } else {
+          window.location.href = "https://app.prolific.co/submissions/complete?cc=" + prolific_completion_code;
+        }
+      }
+
+      if (running_on_pavlovia) {
+        // pavlovia_finish uploads the collected data as a CSV to this
+        // study's GitLab project (visible under the "Data" tab on the
+        // Pavlovia dashboard) and closes the session.
+        timeline.push({
+          type: jsPsychPavlovia,
+          command: "finish",
+          participantId: prolific_pid,
+          on_finish: goToProlificOrThankYou
+        });
+      } else {
+        // Local testing: nothing to actually save, just show the
+        // end-of-experiment message so the run completes cleanly.
+        timeline.push({
+          type: jsPsychHtmlKeyboardResponse,
+          stimulus: `<p>Please wait...</p>`,
+          choices: "NO_KEYS",
+          trial_duration: 500,
+          on_finish: goToProlificOrThankYou
+        });
+      }
+
+      jsPsych.run(timeline);
+    });
+  </script>
+</html>
